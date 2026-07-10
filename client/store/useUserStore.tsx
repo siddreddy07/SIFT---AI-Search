@@ -4,10 +4,17 @@ export type Notification = {
   type: string,
   length: number
 }
+export type ApiKey = {
+  type: string
+  key: string
+}
+
 export type User = {
   _id: string
   name: string
   email: string
+  avatar_url?: string
+  apikeys?: ApiKey[]
   updatedAt: string
   notifications: Notification[]
   discover?: string[]

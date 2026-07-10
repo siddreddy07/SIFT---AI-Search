@@ -101,19 +101,3 @@ export const logoutService = async ({ userId }) => {
     { $unset: { refreshToken: "" } }
   )
 }
-
-export const getMeService = async (userId) => {
-
-    console.log('Userid :',typeof(userId))
-
-  const user = await getDb().collection('user').findOne(
-    { _id: new ObjectId(userId) },
-    { projection: { _id: 1, name: 1, email: 1, updatedAt: 1 } }
-  )
-
-  if (!user) {
-    throw new Error('User not found')
-  }
-
-  return user
-}

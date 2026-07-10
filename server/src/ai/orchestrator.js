@@ -10,31 +10,18 @@ import { getDb } from "../config/db.js";
 import { ObjectId } from "mongodb";
 
 const model = new ChatGroq({
-  model: "openai/gpt-oss-120b",
-  temperature: 0.7,
+  model: "llama-3.3-70b-versatile",
+  temperature: 0.2,
 })
 
+const modelWithTools = model.bindTools(tools,{ parallel_tool_calls: true })
+
 const toolsByName = Object.fromEntries(
-  tools.map((tool) => [tool.name, tool])
+  tools.map((t) => [t.name, t])
 )
 
 function emit(onEvent, userId, event) {
   onEvent?.({ userId, ...event })
-}
-
-function parseToolCalls(content) {
-  const regex = /<function=(\w+)>([\s\S]*?)<\/function>/g
-  const calls = []
-  let match
-  while ((match = regex.exec(content)) !== null) {
-    try {
-      const args = JSON.parse(match[2].trim())
-      calls.push({ name: match[1], args })
-    } catch {
-      calls.push({ name: match[1], args: { query: match[2] } })
-    }
-  }
-  return calls
 }
 
 async function executeTools(toolCalls, botId, onEvent, userId) {
@@ -42,12 +29,12 @@ async function executeTools(toolCalls, botId, onEvent, userId) {
   const contextParts = []
 
   await Promise.all(toolCalls.map(async (call) => {
-    const tool = toolsByName[call.name]
-    if (!tool) return
+    const t = toolsByName[call.name]
+    if (!t) return
 
     emit(onEvent, userId, { type: "tool_start", botId, data: { tool: call.name, botId, args: call.args } })
 
-    const raw = await tool.func(call.args)
+    const raw = await t.invoke(call.args)
     let parsed = raw
     if (typeof raw === "string") {
       try { parsed = JSON.parse(raw) } catch { parsed = raw }
@@ -63,11 +50,11 @@ async function executeTools(toolCalls, botId, onEvent, userId) {
 }
 
 function buildHistory(messages, userId, selectedPillId, selectedPillProvider, selectedPillPrompt, selectedPillText) {
-  const { lastN, chatId } = messages
+  const { lastN } = messages
   const lastUserMsg = [...lastN].reverse().find(m => (m.role || m.sender) === "user") ?? {}
   const query = selectedPillPrompt || (lastUserMsg.content ?? lastUserMsg.text ?? "")
 
-  console.log('Query :',query)
+  console.log('Query :', query)
 
   const hasFileIds = lastN?.some(m => m.fileIds?.length)
   const fileIds = [...new Set(lastN?.flatMap(m => m.fileIds ?? []))]
@@ -119,7 +106,6 @@ export async function orchestrate(messages, onEvent) {
     const cached = await redis.get(redisKeys.chat(userId, chatId))
     if (cached) {
       const data = JSON.parse(cached)
-      const chat = data.chat || data
       const cachedMessages = data.messages ?? []
 
       console.log('Cached Messages :', cachedMessages)
@@ -130,60 +116,97 @@ export async function orchestrate(messages, onEvent) {
 
   const { history, query, hasFileIds, mentionsUserContent } = buildHistory(messages, userId, selectedPillId, selectedPillProvider, selectedPillPrompt, selectedPillText)
 
-  // Step 1: LLM decides which tools to call
-  let fullContent = ""
-  for await (const chunk of await model.stream(history)) {
-    fullContent += chunk.content
+  // Step 1: Model decides which tools to call (native tool calling)
+  const firstResponse = await modelWithTools.invoke(history)
+
+  console.log("Tool Calls :",firstResponse.tool_calls)
+
+  console.log('Step 1 tool_calls:', firstResponse.tool_calls?.length ? firstResponse.tool_calls.map(tc => tc.name) : 'none')
+
+  let toolCalls = []
+  let contextParts = []
+  let sources = {}
+
+  if (firstResponse.tool_calls?.length) {
+    // Step 2: Execute tool calls
+    toolCalls = firstResponse.tool_calls.map(tc => ({ name: tc.name, args: tc.args }))
+    const toolResults = await executeTools(toolCalls, botId, onEvent, userId)
+    contextParts = toolResults.contextParts
+    sources = toolResults.sources
+
+    // Step 3: Send tool results back — simple follow-up, no full history
+    const toolContext = toolResults.contextParts.join("\n\n")
+
+    const followUp = [
+      new SystemMessage("You are SIFT. Answer using the search results below. Keep it concise. No intros, no TL;DR."),
+      new HumanMessage(`Question: ${query}\n\nSearch results:\n${toolContext}`),
+    ]
+
+    let finalAnswer = ""
+    for await (const chunk of await model.stream(followUp)) {
+      if (!chunk.content) continue
+      finalAnswer += chunk.content
+      emit(onEvent, userId, { type: "token", botId, data: chunk.content })
+    }
+
+    emit(onEvent, userId, { type: "done", botId, data: finalAnswer })
+
+    // Step 4: Save to database
+    let chatTitle = "New Chat"
+    let chat = ''
+
+    const isChat = await getDb().collection('chats').findOne({ _id: new ObjectId(chatId.toString()), userId })
+
+    if (!isChat) {
+      const generated = await generateTitle({ query, chatId, userId, onEvent, sources: finalAnswer })
+      chatTitle = generated.title || "New Chat"
+      chat = await chatService.createChat({ chatId, userId, title: chatTitle })
+    }
+
+    const lastUserMsg = [...messages.lastN].reverse().find(m => (m.role || m.sender) === "user") ?? {}
+    const userMsg = await messageService.createMessage({
+      msgId: lastUserMsg._id ?? lastUserMsg.id,
+      chatId, role: 'user', content: query, userId,
+      fileIds: lastUserMsg.fileIds,
+    })
+    const botMessage = await messageService.createMessage({
+      msgId: botId, chatId, role: 'assistant', content: finalAnswer, sources, userId,
+    })
+
+    console.log('Saved:', { userMsgId: userMsg._id, botMsgId: botMessage._id, chatId })
+
+    return { answer: finalAnswer }
+  } else {
+    // No tool calls — model answered directly
+    const finalAnswer = firstResponse.content || ""
+
+    emit(onEvent, userId, { type: "token", botId, data: finalAnswer })
+    emit(onEvent, userId, { type: "done", botId, data: finalAnswer })
+
+    // Save to database
+    let chatTitle = "New Chat"
+    let chat = ''
+
+    const isChat = await getDb().collection('chats').findOne({ _id: new ObjectId(chatId.toString()), userId })
+
+    if (!isChat) {
+      const generated = await generateTitle({ query, chatId, userId, onEvent, sources: finalAnswer })
+      chatTitle = generated.title || "New Chat"
+      chat = await chatService.createChat({ chatId, userId, title: chatTitle })
+    }
+
+    const lastUserMsg = [...messages.lastN].reverse().find(m => (m.role || m.sender) === "user") ?? {}
+    const userMsg = await messageService.createMessage({
+      msgId: lastUserMsg._id ?? lastUserMsg.id,
+      chatId, role: 'user', content: query, userId,
+      fileIds: lastUserMsg.fileIds,
+    })
+    const botMessage = await messageService.createMessage({
+      msgId: botId, chatId, role: 'assistant', content: finalAnswer, sources, userId,
+    })
+
+    console.log('Saved:', { userMsgId: userMsg._id, botMsgId: botMessage._id, chatId })
+
+    return { answer: finalAnswer }
   }
-  // Step 2: Parse and execute tool calls
-  const toolCalls = parseToolCalls(fullContent)
-  const { sources, contextParts } = await executeTools(toolCalls, botId, onEvent, userId)
-
-  // Step 3: Generate final answer with tool results
-  const isIdentityQuestion = /who are you|what are you|what can you do|what model|how are you (so )?good|tell me about yourself|introduce yourself/i.test(query)
-  const finalHistory = buildFinalPrompt({
-    query,
-    isIdentityQuestion,
-    hasFileIds,
-    mentionsUserContent,
-    toolCalls,
-    contextParts,
-    lastN: messages.lastN,
-    pillProvider: selectedPillProvider,
-  })
-
-  let finalAnswer = ""
-  for await (const chunk of await model.stream(finalHistory)) {
-    if (!chunk.content) continue
-    finalAnswer += chunk.content
-    emit(onEvent, userId, { type: "token", botId, data: chunk.content })
-  }
-
-  emit(onEvent, userId, { type: "done", botId, data: finalAnswer })
-
-  // Step 4: Save to database
-  let chatTitle = "New Chat"
-  let chat=''
-
-  const isChat = await getDb().collection('chats').findOne({_id:new ObjectId(chatId.toString()),userId})
-
-  if (!isChat) {
-    const generated = await generateTitle({ query, chatId, userId, onEvent, sources: finalAnswer })
-    chatTitle = generated.title || "New Chat"
-    chat = await chatService.createChat({ chatId, userId, title: chatTitle })
-  }
-
-  const lastUserMsg = [...messages.lastN].reverse().find(m => (m.role || m.sender) === "user") ?? {}
-  const userMsg = await messageService.createMessage({
-    msgId: lastUserMsg._id ?? lastUserMsg.id,
-    chatId, role: 'user', content: query, userId,
-    fileIds: lastUserMsg.fileIds,
-  })
-  const botMessage = await messageService.createMessage({
-    msgId: botId, chatId, role: 'assistant', content: finalAnswer, sources, userId,
-  })
-
-  console.log('Saved:', { userMsgId: userMsg._id, botMsgId: botMessage._id, chatId })
-
-  return { answer: finalAnswer }
 }

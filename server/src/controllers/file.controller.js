@@ -16,13 +16,15 @@ export const uploadFile = async (req, res) => {
     fileService.validateFile(req.file)
 
     
-        console.log('Event Source in coming')
+    const result = await storageService.uploadFile(req.file, userId, fileId)
+    
+        console.log('Event Source in coming for File Upload .')
 
         res.setHeader("Content-type","text/event-stream")
         res.setHeader("Cache-Control","no-cache")
         res.setHeader("Connection","keep-alive")
 
-    const result = await storageService.uploadFile(req.file, userId, fileId)
+        res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`)
     res.status(200).json({ success: true, message: result })
   } catch (error) {
     res.status(500).json({ error: error.message })

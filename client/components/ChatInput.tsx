@@ -64,10 +64,12 @@ export default function ChatInput({ fixed = false, provider, prefillMessage, sel
     } else if (data.type === "done") {
       botReplyRef.current = "";
     } else if (data.type === "title_token") {
+      console.log(`[title_token] ${data.data}`);
       titleRef.current += data.data;
       const chat = useMessageStore.getState().chats.find(c => c._id === chatId);
       if (chat) setChat({ ...chat, title: titleRef.current });
     } else if (data.type === "title_done") {
+      console.log(`[title_done]`, data.data);
       const chat = useMessageStore.getState().chats.find(c => c._id === chatId);
       if (chat) setChat({ ...chat, title: data.data.title });
       titleRef.current = "";
@@ -220,6 +222,9 @@ export default function ChatInput({ fixed = false, provider, prefillMessage, sel
 
       if (data.jobId) {
         const es = new EventSource(`/api/jobs/${data.jobId}/events`);
+
+        console.log('Event SOurce for File Upload :',es)
+
         eventSourcesRef.current.set(fileId, es);
 
         es.addEventListener("active", () => {
@@ -284,10 +289,10 @@ export default function ChatInput({ fixed = false, provider, prefillMessage, sel
     <div
   className={`
     ${centered
-      ? "fixed top-0 right-0 bottom-0 left-0 flex items-center justify-center bg-gradient-to-b from-zinc-50/80 to-white dark:from-zinc-950 dark:to-zinc-900/80"
+      ? "fixed top-0 right-0 bottom-0 left-0 flex items-center justify-center"
       : fixed
-        ? "fixed left-0 flex items-center justify-center right-0 bottom-0 px-0 md:px-3 pt-4 bg-gradient-to-t from-white/95 via-white/80 to-transparent dark:from-zinc-950/95 dark:via-zinc-950/80 dark:to-transparent"
-        : "px-0 md:px-3 flex items-center justify-center pt-4 bg-gradient-to-t from-white/95 via-white/80 to-transparent dark:from-zinc-950/95 dark:via-zinc-950/80 dark:to-transparent"
+        ? "fixed left-0 flex items-center justify-center right-0 bottom-0 px-0 md:px-3 pt-4 bg-gradient-to-t from-[#F8F8F8]/95 via-[#F8F8F8]/80 to-transparent dark:from-zinc-950/95 dark:via-zinc-950/80 dark:to-transparent"
+        : "px-0 md:px-3 flex items-center justify-center pt-4 bg-gradient-to-t from-[#F8F8F8]/95 via-[#F8F8F8]/80 to-transparent dark:from-zinc-950/95 dark:via-zinc-950/80 dark:to-transparent"
     }
   `}
   style={fixed && !centered && !isMobile && sidebarOpen ? { left: "var(--sidebar-width)" } : undefined}

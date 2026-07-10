@@ -1,7 +1,8 @@
-import { ChatOpenRouter } from "@langchain/openrouter"
+import { ChatOllama } from "@langchain/ollama"
 import { z } from "zod"
 
-const model = new ChatOpenRouter("nex-agi/nex-n2-pro:free", {
+const model = new ChatOllama({
+  model: "qwen2.5:7b-instruct",
   temperature: 0.7,
 })
 
@@ -12,13 +13,15 @@ const titleSchema = z.object({
 
 export async function generateTitle({query, chatId, userId, onEvent, sources}) {
   try {
-    const  birefAnswer = sources
+    const birefAnswer = sources
     const prompt = birefAnswer
       ? `Query: ${query}\n\nBrief Answer: ${birefAnswer}`
       : query
 
+    console.log('Title Generation hit')
+
     const stream = await model.stream([
-      ["system", "You are a professional title-crafter. Given a user query and optional search results produce:\n- \"title\": compelling, click-worthy title (max 80 chars)\n- \"subtitle\": short tagline (max 120 chars)\nRules:\n- Output ONLY valid JSON, no markdown\n- Content may have Chinese, Japanese, URLs — only use English content\n- No clickbait, match the topic's tone"],
+      ["system", "Output ONLY this JSON format, nothing else. No markdown, no backticks, no explanation:\n{\"title\": \"short title\", \"subtitle\": \"short subtitle\"}"],
       ["human", prompt],
     ])
 
@@ -28,11 +31,15 @@ export async function generateTitle({query, chatId, userId, onEvent, sources}) {
       onEvent?.({ type: "title_token", userId, chatId, data: chunk.content })
     }
 
-    const parsed = JSON.parse(full)
+    // Strip markdown code blocks if present
+    const cleaned = full.replace(/```[\s\S]*?```/g, (m) => m.replace(/```json?\n?/g, "").replace(/```/g, "").trim()).trim()
+    const parsed = JSON.parse(cleaned)
     const validated = titleSchema.parse(parsed)
+    console.log('Title :', validated)
     onEvent?.({ type: "title_done", userId, chatId, data: validated })
     return validated
-  } catch {
+  } catch (error) {
+    console.log('Error :', error)
     const fallback = { title: query.slice(0, 80), subtitle: "" }
     onEvent?.({ type: "title_done", userId, chatId, data: fallback })
     return fallback

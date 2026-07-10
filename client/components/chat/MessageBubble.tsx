@@ -1,10 +1,13 @@
 "use client"
 
 import { useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { YoutubeLogo } from "./YoutubeLogo"
 import { SiteFavicon } from "./SiteFavicon"
 import { ImageCarousel } from "./ImageCarousel"
 import { MessageActions } from "./MessageActions"
+import { CodeBlock } from "./CodeBlock"
 import { type FileInfo } from "@/store/useMessageStore"
 import { getFileTypeIcon } from "@/lib/provider-icons"
 import { formatFileSize } from "./FileUpload"
@@ -139,11 +142,38 @@ export const MessageBubble = ({
         <div
           className={`max-w-none ${
             msg.role === "user"
-              ? "prose text-white [&_*]:text-inherit"
-              : "prose text-foreground dark:text-zinc-200 [&_*]:text-inherit"
+              ? "prose text-white [&_*]:text-inherit [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0"
+              : "prose text-foreground dark:text-zinc-200 [&_*]:text-inherit [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0"
           }`}
-          dangerouslySetInnerHTML={{ __html: msg.content }}
-/>
+        >
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code: CodeBlock,
+              table: ({ children }) => (
+                <div className="overflow-x-auto my-4 rounded-lg border border-gray-700">
+                  <table className="w-full text-sm">{children}</table>
+                </div>
+              ),
+              thead: ({ children }) => (
+                <thead className="bg-zinc-800">{children}</thead>
+              ),
+              th: ({ children }) => (
+                <th className="px-4 py-2 text-left font-medium border-b border-gray-700">
+                  {children}
+                </th>
+              ),
+              td: ({ children }) => (
+                <td className="px-4 py-2 border-b border-gray-800">{children}</td>
+              ),
+              tr: ({ children }) => (
+                <tr className="hover:bg-zinc-800/50 transition-colors">{children}</tr>
+              ),
+            }}
+          >
+            {msg.content}
+          </ReactMarkdown>
+        </div>
       </div>
       {msg.role === "assistant" && (
         <MessageActions content={msg.content} messageId={msg._id} />

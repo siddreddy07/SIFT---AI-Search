@@ -16,6 +16,7 @@ import fileRoutes from './src/routes/file.routes.js'
 import notificationRoutes from './src/routes/notification.routes.js'
 import jobsRoutes from './src/routes/jobs.routes.js'
 import discoverRoutes from './src/routes/discover.routes.js'
+import userRoutes from './src/routes/user.routes.js'
 
 const app = express()
 const PORT = process.env.PORT || 8000
@@ -33,6 +34,7 @@ app.use('/api/home-pills', homePillRoutes)
 app.use('/api/file', fileRoutes)
 app.use('/api/jobs', jobsRoutes)
 app.use('/api/discover', discoverRoutes)
+app.use('/api/user',userRoutes)
 
 app.use((err, _req, res, _next) => {
   if (err instanceof z.ZodError) {
@@ -85,7 +87,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', async (data) => {
     try {
       const query = JSON.parse(data.toString())
-      query.userId = ws.id
+      query.userId = query.userId || ws.id
       const result = await orchestrate(query, (event) => send(event))
       send({ type: 'done', data: result })
     } catch (error) {

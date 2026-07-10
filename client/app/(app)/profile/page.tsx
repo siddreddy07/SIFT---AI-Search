@@ -18,12 +18,15 @@ function nameToPokemonId(name: string) {
 }
 
 const PLACEHOLDER_KEYS = {
-  normal: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  image: "img-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  normal: "••••••••••••••••••••••••••••••••••••••••",
+  image: "••••••••••••••••••••••••••••••••••••••••",
 }
 
 export default function ProfilePage() {
   const user = useUserStore((s) => s.user)
+
+  const setuser = useUserStore((s)=>s.setUser)
+  
   const [showKeys, setShowKeys] = useState({ normal: false, image: false })
   const [copied, setCopied] = useState<string | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
@@ -31,6 +34,23 @@ export default function ProfilePage() {
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const pokemonId = useMemo(() => nameToPokemonId(user?.name || "user"), [user?.name])
+
+  const pokemonImgSrc = user?.avatar_url || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemonId}.png`
+
+  const handlePokemonImgLoad = async () => {
+    if (user?.avatar_url) return
+    const url = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemonId}.png`
+    try {
+      const res = await api.put("/api/user/update", { avatar_url: url })
+      setuser(res.data.user)
+    } catch (err) {
+      console.error("Failed to save avatar URL:", err)
+    }
+  }
+      console.log('User Value :',user)
+
+  const normalKey = user?.apikeys?.find((k) => k.type === "default")?.key || PLACEHOLDER_KEYS.normal
+  const imageKey = user?.apikeys?.find((k) => k.type === "image")?.key || PLACEHOLDER_KEYS.image
 
   const toggleVisibility = (field: "normal" | "image") => {
     setShowKeys((prev) => ({ ...prev, [field]: !prev[field] }))
@@ -66,11 +86,12 @@ export default function ProfilePage() {
                 <img src={avatarPreview} alt="Avatar" className="size-full object-cover" />
               ) : (
                 <Image
-                  src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemonId}.png`}
+                  src={pokemonImgSrc}
                   alt="Pokemon avatar"
                   width={96}
                   height={96}
                   className="size-full object-cover"
+                  onLoad={handlePokemonImgLoad}
                 />
               )}
             </div>
@@ -118,11 +139,11 @@ export default function ProfilePage() {
               <div className="flex items-center gap-2">
                 <div className="flex-1 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg px-3 py-2 border border-zinc-100 dark:border-zinc-700">
                   <code className="text-xs font-mono text-zinc-600 dark:text-zinc-300 break-all select-all">
-                    {showKeys.normal ? PLACEHOLDER_KEYS.normal : "•".repeat(PLACEHOLDER_KEYS.normal.length)}
+                    {showKeys.normal ? normalKey : "•".repeat(normalKey.length)}
                   </code>
                 </div>
                 <button
-                  onClick={() => copyToClipboard(PLACEHOLDER_KEYS.normal, "normal")}
+                  onClick={() => copyToClipboard(normalKey, "normal")}
                   className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
                 >
                   {copied === "normal" ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-zinc-400" />}
@@ -144,11 +165,11 @@ export default function ProfilePage() {
               <div className="flex items-center gap-2">
                 <div className="flex-1 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg px-3 py-2 border border-zinc-100 dark:border-zinc-700">
                   <code className="text-xs font-mono text-zinc-600 dark:text-zinc-300 break-all select-all">
-                    {showKeys.image ? PLACEHOLDER_KEYS.image : "•".repeat(PLACEHOLDER_KEYS.image.length)}
+                    {showKeys.image ? imageKey : "•".repeat(imageKey.length)}
                   </code>
                 </div>
                 <button
-                  onClick={() => copyToClipboard(PLACEHOLDER_KEYS.image, "image")}
+                  onClick={() => copyToClipboard(imageKey, "image")}
                   className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
                 >
                   {copied === "image" ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-zinc-400" />}

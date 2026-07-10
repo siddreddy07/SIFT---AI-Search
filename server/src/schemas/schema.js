@@ -1,6 +1,6 @@
 import { ObjectId } from "mongodb"
 import z from "zod"
-import { REAS_MODELS, VISION_MODELS } from "../config/constants.js"
+import { DEFAULT_REASON_MODEL, DEFAULT_VISION_MODEL, REASON_MODELS, VISION_MODELS } from "../config/constants.js"
 
 export const ChatSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -105,13 +105,13 @@ export const UserSchema = z.object({
     {
       type: "default",
       provider: "",
-      models:z.enum(REAS_MODELS).default("openai/gpt-oss-120b"),
+      models:z.enum(REASON_MODELS).default(DEFAULT_REASON_MODEL),
       key: "",
     },
     {
       type: "image",
       provider: "",
-      models:z.enum(VISION_MODELS).default("nvidia/nemotron-3-nano-omni"),
+      models:z.enum(VISION_MODELS).default(DEFAULT_VISION_MODEL),
       key: "",
     },
   ]),
